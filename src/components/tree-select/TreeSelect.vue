@@ -39,6 +39,11 @@ export default defineComponent({
 
 <style lang="scss" scoped>
 .tree-select {
+  color: #333e48;
+
+  * {
+    color: inherit;
+  }
 }
 
 .tree-select__list {

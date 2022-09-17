@@ -153,6 +153,10 @@ export default defineComponent({
 
   &.tree-node_expanded {
   }
+
+  + .tree-node {
+    margin-top: 10px;
+  }
 }
 
 .tree-node__element {
@@ -160,7 +164,7 @@ export default defineComponent({
   display: flex;
   flex-flow: row nowrap;
   align-items: center;
-  height: 38px;
+  min-height: 20px;
 
   > :nth-child(1) {
     flex: 0 0 20px;
@@ -181,7 +185,7 @@ export default defineComponent({
   display: flex;
   flex-flow: row nowrap;
   align-items: center;
-  height: 38px;
+  min-height: 20px;
 
   > :nth-child(1) {
     flex: 1 1 100%;
@@ -196,7 +200,7 @@ export default defineComponent({
 .tree-node__children {
   list-style: none;
   padding-inline-start: 28px;
-  margin-block: 0;
+  margin-block: 10px 0;
 }
 
 .tree-node__expand-collapse {
@@ -204,8 +208,8 @@ export default defineComponent({
   outline: none;
   border: none;
   background: transparent;
-  height: 38px;
-  width: 38px;
+  min-height: 20px;
+  width: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
