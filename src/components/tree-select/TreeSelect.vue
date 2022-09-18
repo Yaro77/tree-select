@@ -26,6 +26,10 @@ export default defineComponent({
       default: SelectionMode.Node,
       validator: (val) => Object.values(SelectionMode).includes(val),
     },
+    value: {
+      type: Array,
+      default: () => [],
+    },
   },
   setup(props, context) {
     provide(ID_FN_KEY, props.idFn);

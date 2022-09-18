@@ -6,6 +6,7 @@ import {
   reactive,
   toRefs,
   watch,
+  onMounted,
 } from 'vue';
 import {
   ID_FN_KEY,
@@ -13,15 +14,23 @@ import {
   CHILDREN_FN_KEY,
   SELECTION_MODE_KEY,
 } from './constants';
-import { SelectionMode } from './types';
+import { SelectionMode, SelectionState } from './types';
+
+enum CheckState {
+  Unchecked,
+  Intermediate,
+  Checked,
+}
+
+interface Child {
+  node: any;
+  check: CheckState;
+}
 
 interface State {
   expanded: boolean;
-  selected: boolean;
-  children: {
-    node: any;
-    selected: boolean;
-  };
+  check: CheckState;
+  children: Child[];
 }
 
 export default defineComponent({
@@ -35,7 +44,7 @@ export default defineComponent({
       default: false,
     },
   },
-  emit: ['select'],
+  emits: ['select'],
   setup(props, context) {
     const { emit } = context;
     const { selected } = toRefs(props);
@@ -44,53 +53,44 @@ export default defineComponent({
     const childrenFn = inject<Function>(CHILDREN_FN_KEY);
     const selectionMode = inject<SelectionMode>(SELECTION_MODE_KEY);
 
+    const childrenCheck =
+      selectionMode === SelectionMode.Subtree
+        ? selected.value
+          ? CheckState.Selected
+          : CheckState.Unchecked
+        : CheckState.Unchecked;
+
     const state = reactive<State>({
-      expanded: true,
-      selected: false,
-      children: childrenFn(props.node).map((ch) => ({
-        node: ch,
-        selected: selected.value,
+      expanded: true, // todo: false by default
+      check: selected.value ? CheckState.Checked : CheckState.Unchecked,
+      children: childrenFn(props.node).map((child) => ({
+        node: child,
+        check: childrenCheck,
       })),
     });
 
-    watch(selected, (selected) => {
-      const changed = selected !== state.selected;
-      if (changed) {
-        state.selected = selected;
-        if (selectionMode === SelectionMode.Subtree) {
-          state.children.forEach((ch) => (ch.selected = selected));
-        }
+    onMounted(() => {
+      emitSelect(); // update check tracking in parent
+    });
+
+    const checkIcon = computed(() => {
+      switch (state.check) {
+        case CheckState.Unchecked:
+          return '#not-selected';
+        case CheckState.Intermediate:
+          return '#any-child-selected';
+        case CheckState.Checked:
+          return '#selected';
       }
     });
 
-    const hasChildren = computed(() => state.children.length > 0);
-    const someChildSelected = computed(
-      () =>
-        state.children.some((ch) => ch.selected) &&
-        state.children.some((ch) => !ch.selected)
-    );
-    const everyChildSelected = computed(() =>
-      state.children.every((ch) => ch.selected)
-    );
-    const noChildrenSelected = computed(() =>
-      state.children.every((ch) => !ch.selected)
-    );
-
-    const selectionIcon = computed(() => {
-      if (selectionMode === SelectionMode.Node) {
-        if (state.selected) {
-          return '#selected';
-        }
-        return '#not-selected';
-      }
-      if (selectionMode === SelectionMode.Subtree) {
-        if (state.selected) {
-          return '#selected';
-        }
-        if (someChildSelected.value) {
-          return '#any-child-selected';
-        }
-        return '#not-selected';
+    watch(selected, (value) => {
+      state.ckeck = selectionMode === SelectionMode.Subtree ? value ? CheckState.Checked : CheckState.Unchecked;
+      if (
+        selectionMode === SelectionMode.Subtree &&
+        selection !== Selection.Intermediate
+      ) {
+        state.children.forEach((ch) => (ch.selection = selection));
       }
     });
 
@@ -99,38 +99,75 @@ export default defineComponent({
     }
 
     function toggleSelectState() {
-      state.selected = !state.selected; // todo: select hierarchy, or apply selection strategy
+      const newSelection =
+        state.selection === Selection.Unselected ||
+        state.selection === Selection.Intermediate
+          ? Selection.Selected
+          : Selection.Unselected;
+      state.selection = newSelection;
       if (selectionMode === SelectionMode.Subtree) {
-        state.children.forEach((ch) => (ch.selected = state.selected));
+        state.children.forEach((ch) => (ch.selection = newSelection));
       }
       emitSelect();
     }
 
-    function onSelectChild({ id, selected }) {
-      const child = state.children.find((ch) => idFn(ch.node) === id);
+    function onSelectChild({ id, selection }) {
+      const child = state.children.find((ch) => id === idFn(ch.node));
       if (!child) {
         throw Error('Child not found, invalid state!');
       }
-      child.selected = selected;
-      if (selectionMode === SelectionMode.Subtree && hasChildren.value) {
-        state.selected = everyChildSelected.value;
-        emitSelect();
+      child.selection = selection;
+      updateSelection();
+      emitSelect();
+    }
+
+    function updateSelection() {
+      if (
+        selectionMode === SelectionMode.Subtree &&
+        state.children.length > 0
+      ) {
+        const everyChildSelected = state.children.every(
+          (ch) => ch.selection === Selection.Selected
+        );
+        const everyChildUnselected = state.children.every(
+          (ch) => ch.selection === Selection.Unselected
+        );
+        const text = textFn(props.node);
+        if (everyChildSelected) {
+          console.log('every selected', text);
+          state.selection = Selection.Selected;
+        } else if (everyChildUnselected) {
+          console.log('every unselected', text);
+          state.selection = Selection.Unselected;
+        } else {
+          console.log('some some', text);
+          state.selection = Selection.Intermediate;
+        }
       }
     }
 
     function emitSelect() {
-      emit('select', { id: idFn(props.node), selected: state.selected });
+      emit('select', {
+        id: idFn(props.node),
+        check: state.check,
+      });
+    }
+
+    function fixChildSelection(selection: Selection) {
+      return selection === Selection.Selected
+        ? Selection.Selected
+        : Selection.Unselected;
     }
 
     return {
       ...toRefs(state),
-      hasChildren,
       idFn,
       textFn,
       selectionIcon,
       toggleExpandState,
       toggleSelectState,
       onSelectChild,
+      fixChildSelection,
     };
   },
 });
@@ -198,7 +235,7 @@ export default defineComponent({
         <div class="tree-node__content">
           <div>{{ textFn(node) }}</div>
           <button
-            v-if="hasChildren"
+            v-if="children.length > 0"
             class="tree-node__expand-collapse"
             @click.stop="toggleExpandState"
           >
@@ -227,7 +264,7 @@ export default defineComponent({
         v-for="child of children"
         :key="idFn(child.node)"
         :node="child.node"
-        :selected="child.selected"
+        :selection="fixChildSelection(child.selection)"
         @select="onSelectChild"
       ></tree-node>
     </ul>
