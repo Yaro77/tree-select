@@ -1,7 +1,13 @@
 <script lang="ts">
-import { defineComponent, provide } from 'vue';
+import { defineComponent, provide, PropType } from 'vue';
 import TreeNode from './TreeNode.vue';
-import { ID_FN_KEY, TEXT_FN_KEY, CHILDREN_FN_KEY } from './constants';
+import { SelectionMode } from './types';
+import {
+  ID_FN_KEY,
+  TEXT_FN_KEY,
+  CHILDREN_FN_KEY,
+  SELECTION_MODE_KEY,
+} from './constants';
 
 export default defineComponent({
   components: {
@@ -15,11 +21,17 @@ export default defineComponent({
     idFn: Function,
     textFn: Function,
     childrenFn: Function,
+    selectionMode: {
+      type: String as PropType<SelectionMode>,
+      default: SelectionMode.Node,
+      validator: (val) => Object.values(SelectionMode).includes(val),
+    },
   },
   setup(props, context) {
     provide(ID_FN_KEY, props.idFn);
     provide(TEXT_FN_KEY, props.textFn);
     provide(CHILDREN_FN_KEY, props.childrenFn);
+    provide(SELECTION_MODE_KEY, props.selectionMode);
     return {};
   },
 });

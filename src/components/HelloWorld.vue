@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { TreeSelect } from './tree-select';
+import { TreeSelect, SelectionMode } from './tree-select';
 
 defineProps({
   msg: String,
@@ -42,14 +42,27 @@ const nodes = ref([
     ],
   },
 ]);
+
+function getId(n) {
+  return n.id;
+}
+
+function getText(n) {
+  return n.text;
+}
+
+function getChildren(n) {
+  return n.children || [];
+}
 </script>
 
 <template>
   <tree-select
     :nodes="nodes"
-    :id-fn="(n) => n.id"
-    :text-fn="(n) => n.text"
-    :children-fn="(n) => n.children"
+    :id-fn="getId"
+    :text-fn="getText"
+    :children-fn="getChildren"
+    :selection-mode="SelectionMode.Subtree"
   ></tree-select>
 </template>
 

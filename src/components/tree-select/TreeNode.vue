@@ -1,6 +1,21 @@
 <script lang="ts">
-import { defineComponent, inject, computed, ref } from 'vue';
-import { ID_FN_KEY, TEXT_FN_KEY, CHILDREN_FN_KEY } from './constants';
+import { defineComponent, inject, computed, reactive, toRefs } from 'vue';
+import {
+  ID_FN_KEY,
+  TEXT_FN_KEY,
+  CHILDREN_FN_KEY,
+  SELECTION_MODE_KEY,
+} from './constants';
+import { SelectionMode } from './types';
+
+interface State {
+  expanded: boolean;
+  selected: boolean;
+  children: {
+    node: any;
+    selected: boolean;
+  };
+}
 
 export default defineComponent({
   name: 'tree-node',
@@ -8,21 +23,31 @@ export default defineComponent({
     node: {
       type: Object,
     },
+    selected: {
+      type: Boolean,
+      default: false,
+    },
   },
+  emit: ['select'],
   setup(props, context) {
-    const idFn = inject(ID_FN_KEY);
-    const textFn = inject(TEXT_FN_KEY);
-    const childrenFn = inject(CHILDREN_FN_KEY);
+    const { emit } = context;
+    const { selected } = toRefs(props);
+    const idFn = inject<Function>(ID_FN_KEY);
+    const textFn = inject<Function>(TEXT_FN_KEY);
+    const childrenFn = inject<Function>(CHILDREN_FN_KEY);
+    const selectionMode = inject<SelectionMode>(SELECTION_MODE_KEY);
 
-    const expanded = ref(false);
-    const selected = ref(false);
-
-    const children = computed(() => {
-      return childrenFn(props.node) || [];
+    const state = reactive<State>({
+      expanded: false,
+      selected: selected.value,
+      children: childrenFn(props.node).map((ch) => ({
+        node: ch,
+        selected: false,
+      })),
     });
 
     const selectionIcon = computed(() => {
-      if (selected.value) {
+      if (state.selected) {
         return '#selected';
       }
       // todo: what about partially selected?
@@ -30,21 +55,30 @@ export default defineComponent({
     });
 
     function toggleExpandState() {
-      expanded.value = !expanded.value;
+      state.expanded = !state.expanded;
     }
 
     function toggleSelectState() {
-      selected.value = !selected.value; // todo: select hierarchy, or apply selection strategy
+      state.selected = !state.selected; // todo: select hierarchy, or apply selection strategy
+      emit('select', { id: idFn(props.node), selected: state.selected });
+    }
+
+    function onSelectChild({ id, selected }) {
+      const child = state.children.find((ch) => idFn(ch.node) === id);
+      if (!child) {
+        throw Error('Child not found, invalid state!');
+      }
+      child.selected = selected;
     }
 
     return {
+      ...toRefs(state),
       idFn,
       textFn,
-      expanded,
-      children,
       selectionIcon,
       toggleExpandState,
       toggleSelectState,
+      onSelectChild,
     };
   },
 });
@@ -138,9 +172,11 @@ export default defineComponent({
       class="tree-node__children"
     >
       <tree-node
-        v-for="node of children"
-        :key="idFn(node)"
-        :node="node"
+        v-for="child of children"
+        :key="idFn(child.node)"
+        :node="child.node"
+        :selected="child.selected"
+        @select="onSelectChild"
       ></tree-node>
     </ul>
   </li>
