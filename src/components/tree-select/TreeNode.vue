@@ -1,5 +1,12 @@
 <script lang="ts">
-import { defineComponent, inject, computed, reactive, toRefs } from 'vue';
+import {
+  defineComponent,
+  inject,
+  computed,
+  reactive,
+  toRefs,
+  watch,
+} from 'vue';
 import {
   ID_FN_KEY,
   TEXT_FN_KEY,
@@ -38,20 +45,53 @@ export default defineComponent({
     const selectionMode = inject<SelectionMode>(SELECTION_MODE_KEY);
 
     const state = reactive<State>({
-      expanded: false,
-      selected: selected.value,
+      expanded: true,
+      selected: false,
       children: childrenFn(props.node).map((ch) => ({
         node: ch,
-        selected: false,
+        selected: selected.value,
       })),
     });
 
-    const selectionIcon = computed(() => {
-      if (state.selected) {
-        return '#selected';
+    watch(selected, (selected) => {
+      const changed = selected !== state.selected;
+      if (changed) {
+        state.selected = selected;
+        if (selectionMode === SelectionMode.Subtree) {
+          state.children.forEach((ch) => (ch.selected = selected));
+        }
       }
-      // todo: what about partially selected?
-      return '#not-selected';
+    });
+
+    const hasChildren = computed(() => state.children.length > 0);
+    const someChildSelected = computed(
+      () =>
+        state.children.some((ch) => ch.selected) &&
+        state.children.some((ch) => !ch.selected)
+    );
+    const everyChildSelected = computed(() =>
+      state.children.every((ch) => ch.selected)
+    );
+    const noChildrenSelected = computed(() =>
+      state.children.every((ch) => !ch.selected)
+    );
+
+    const selectionIcon = computed(() => {
+      if (selectionMode === SelectionMode.Node) {
+        if (state.selected) {
+          return '#selected';
+        }
+        return '#not-selected';
+      }
+      if (selectionMode === SelectionMode.Subtree) {
+        if (state.selected) {
+          return '#selected';
+        }
+        if (someChildSelected.value) {
+          return '#any-child-selected';
+        }
+        return '#not-selected';
+      }
     });
 
     function toggleExpandState() {
@@ -60,7 +100,10 @@ export default defineComponent({
 
     function toggleSelectState() {
       state.selected = !state.selected; // todo: select hierarchy, or apply selection strategy
-      emit('select', { id: idFn(props.node), selected: state.selected });
+      if (selectionMode === SelectionMode.Subtree) {
+        state.children.forEach((ch) => (ch.selected = state.selected));
+      }
+      emitSelect();
     }
 
     function onSelectChild({ id, selected }) {
@@ -69,10 +112,19 @@ export default defineComponent({
         throw Error('Child not found, invalid state!');
       }
       child.selected = selected;
+      if (selectionMode === SelectionMode.Subtree && hasChildren.value) {
+        state.selected = everyChildSelected.value;
+        emitSelect();
+      }
+    }
+
+    function emitSelect() {
+      emit('select', { id: idFn(props.node), selected: state.selected });
     }
 
     return {
       ...toRefs(state),
+      hasChildren,
       idFn,
       textFn,
       selectionIcon,
@@ -146,7 +198,7 @@ export default defineComponent({
         <div class="tree-node__content">
           <div>{{ textFn(node) }}</div>
           <button
-            v-if="children.length > 0"
+            v-if="hasChildren"
             class="tree-node__expand-collapse"
             @click.stop="toggleExpandState"
           >
