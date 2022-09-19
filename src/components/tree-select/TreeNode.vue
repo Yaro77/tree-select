@@ -14,13 +14,7 @@ import {
   CHILDREN_FN_KEY,
   SELECTION_MODE_KEY,
 } from './constants';
-import { SelectionMode } from './types';
-
-enum CheckState {
-  Unchecked,
-  Intermediate,
-  Checked,
-}
+import { SelectionMode, CheckState } from './types';
 
 interface Child {
   node: any;
@@ -28,9 +22,9 @@ interface Child {
 }
 
 interface State {
-  expanded: boolean;
-  check: CheckState;
-  children: Child[];
+  // expanded: boolean;
+  // check: CheckState;
+  // children: Child[];
 }
 
 export default defineComponent({
@@ -54,24 +48,24 @@ export default defineComponent({
     const selectionMode = inject<SelectionMode>(SELECTION_MODE_KEY);
 
     const state = reactive<State>({
-      expanded: true, // todo: false by default?
-      check: check.value,
-      children: childrenFn(props.node).map((child) => ({
-        node: child,
-        check:
-          check.value === CheckState.Checked &&
-          selectionMode === SelectionMode.Subtree
-            ? CheckState.Checked
-            : CheckState.Unchecked,
-      })),
+      // expanded: true, // todo: false by default?
+      // check: check.value,
+      // children: childrenFn(props.node).map((child) => ({
+      //   node: child,
+      //   check:
+      //     check.value === CheckState.Checked &&
+      //     selectionMode === SelectionMode.Subtree
+      //       ? CheckState.Checked
+      //       : CheckState.Unchecked,
+      // })),
     });
 
     onMounted(() => {
-      emitCheckChange(); // update check tracking in parent
+      // emitCheckChange(); // update check tracking in parent
     });
 
     const checkIcon = computed(() => {
-      switch (state.check) {
+      switch (props.node.$check) {
         case CheckState.Unchecked:
           return '#not-selected';
         case CheckState.Intermediate:
@@ -82,70 +76,68 @@ export default defineComponent({
     });
 
     watch(check, (value) => {
-      state.check = value;
+      props.node.$check = value;
       if (
         selectionMode === SelectionMode.Subtree &&
         value !== CheckState.Intermediate
       ) {
-        state.children.forEach((ch) => (ch.check = value));
+        props.node.children.forEach((ch) => (ch.$check = value));
       }
     });
 
     function toggleExpandState() {
-      state.expanded = !state.expanded;
+      props.node.$expanded = !props.node.$expanded;
     }
 
     function toggleCheckState() {
       const newCheckState =
-        state.check === CheckState.Unchecked ||
-        state.check === CheckState.Intermediate
+        props.node.$check === CheckState.Unchecked ||
+        props.node.$check === CheckState.Intermediate
           ? CheckState.Checked
           : CheckState.Unchecked;
-      state.check = newCheckState;
+      props.node.$check = newCheckState;
       if (selectionMode === SelectionMode.Subtree) {
-        state.children.forEach((ch) => (ch.check = newCheckState));
+        props.node.children.forEach((ch) => (ch.$check = newCheckState));
       }
+
       emitCheckChange();
     }
 
-    function onChildCkeckChange({ id, check }) {
-      const child = state.children.find((ch) => id === idFn(ch.node));
+    function onChildCkeckChange(e) {
+      const child = props.node.children.find((ch) => e.id === idFn(ch.node));
       if (!child) {
         throw Error('Child not found, invalid state!');
       }
-      child.check = check;
+      child.$check = e.check;
       updateCheckState();
+
       emitCheckChange();
     }
 
     function updateCheckState() {
       if (selectionMode === SelectionMode.Subtree) {
-        const everyChildChecked = state.children.every(
-          (ch) => ch.check === CheckState.Checked
+        const everyChildChecked = props.node.children.every(
+          (ch) => ch.$check === CheckState.Checked
         );
-        const everyChildUnchecked = state.children.every(
-          (ch) => ch.check === CheckState.Unchecked
+        const everyChildUnchecked = props.node.children.every(
+          (ch) => ch.$check === CheckState.Unchecked
         );
         if (everyChildChecked) {
-          state.check = CheckState.Checked;
+          props.node.$check = CheckState.Checked;
         } else if (everyChildUnchecked) {
-          state.check = CheckState.Unchecked;
+          props.node.$check = CheckState.Unchecked;
         } else {
-          state.check = CheckState.Intermediate;
+          props.node.$check = CheckState.Intermediate;
         }
       }
     }
 
     function emitCheckChange() {
-      emit('check-change', {
-        id: idFn(props.node),
-        check: state.check,
-      });
+      emit('check-change', { id: props.node.$id, check: props.node.$check });
     }
 
     return {
       ...toRefs(state),
-      idFn,
       textFn,
       checkIcon,
       toggleExpandState,
@@ -160,8 +152,8 @@ export default defineComponent({
   <li
     class="tree-node"
     :class="{
-      'tree-node_expanded': expanded,
-      'tree-node_collapsed': !expanded,
+      'tree-node_expanded': node.$expanded,
+      'tree-node_collapsed': !node.$expanded,
     }"
     @click.stop="toggleCheckState"
   >
@@ -218,7 +210,7 @@ export default defineComponent({
         <div class="tree-node__content">
           <div>{{ textFn(node) }}</div>
           <button
-            v-if="children.length > 0"
+            v-if="node.children.length > 0"
             class="tree-node__expand-collapse"
             @click.stop="toggleExpandState"
           >
@@ -230,7 +222,7 @@ export default defineComponent({
             >
               <g stroke="#C4C4C4">
                 <rect x=".5" y=".5" width="11" height="11" rx=".5" />
-                <path v-if="expanded" d="M9 6H3" />
+                <path v-if="node.$expanded" d="M9 6H3" />
                 <path v-else d="M6 3v6M9 6H3" />
               </g>
             </svg>
@@ -239,16 +231,16 @@ export default defineComponent({
       </slot>
     </div>
     <ul
-      v-if="children.length > 0"
-      v-show="expanded"
+      v-if="node.children.length > 0"
+      v-show="node.$expanded"
       class="tree-node__children"
       @click.stop
     >
       <tree-node
-        v-for="child of children"
-        :key="idFn(child.node)"
+        v-for="child of node.children"
+        :key="child.node.$id"
         :node="child.node"
-        :check="child.check"
+        :check="child.$check"
         @check-change="onChildCkeckChange"
       ></tree-node>
     </ul>
