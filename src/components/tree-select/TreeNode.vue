@@ -14,7 +14,7 @@ import {
   CHILDREN_FN_KEY,
   SELECTION_MODE_KEY,
 } from './constants';
-import { SelectionMode, SelectionState } from './types';
+import { SelectionMode } from './types';
 
 enum CheckState {
   Unchecked,
@@ -39,38 +39,35 @@ export default defineComponent({
     node: {
       type: Object,
     },
-    selected: {
-      type: Boolean,
-      default: false,
+    check: {
+      type: Number as PropType<CheckState>,
+      default: CheckState.Unchecked,
     },
   },
-  emits: ['select'],
+  emits: ['check-change'],
   setup(props, context) {
     const { emit } = context;
-    const { selected } = toRefs(props);
+    const { check } = toRefs(props);
     const idFn = inject<Function>(ID_FN_KEY);
     const textFn = inject<Function>(TEXT_FN_KEY);
     const childrenFn = inject<Function>(CHILDREN_FN_KEY);
     const selectionMode = inject<SelectionMode>(SELECTION_MODE_KEY);
 
-    const childrenCheck =
-      selectionMode === SelectionMode.Subtree
-        ? selected.value
-          ? CheckState.Selected
-          : CheckState.Unchecked
-        : CheckState.Unchecked;
-
     const state = reactive<State>({
-      expanded: true, // todo: false by default
-      check: selected.value ? CheckState.Checked : CheckState.Unchecked,
+      expanded: true, // todo: false by default?
+      check: check.value,
       children: childrenFn(props.node).map((child) => ({
         node: child,
-        check: childrenCheck,
+        check:
+          check.value === CheckState.Checked &&
+          selectionMode === SelectionMode.Subtree
+            ? CheckState.Checked
+            : CheckState.Unchecked,
       })),
     });
 
     onMounted(() => {
-      emitSelect(); // update check tracking in parent
+      emitCheckChange(); // update check tracking in parent
     });
 
     const checkIcon = computed(() => {
@@ -84,13 +81,13 @@ export default defineComponent({
       }
     });
 
-    watch(selected, (value) => {
-      state.ckeck = selectionMode === SelectionMode.Subtree ? value ? CheckState.Checked : CheckState.Unchecked;
+    watch(check, (value) => {
+      state.check = value;
       if (
         selectionMode === SelectionMode.Subtree &&
-        selection !== Selection.Intermediate
+        value !== CheckState.Intermediate
       ) {
-        state.children.forEach((ch) => (ch.selection = selection));
+        state.children.forEach((ch) => (ch.check = value));
       }
     });
 
@@ -98,76 +95,62 @@ export default defineComponent({
       state.expanded = !state.expanded;
     }
 
-    function toggleSelectState() {
-      const newSelection =
-        state.selection === Selection.Unselected ||
-        state.selection === Selection.Intermediate
-          ? Selection.Selected
-          : Selection.Unselected;
-      state.selection = newSelection;
+    function toggleCheckState() {
+      const newCheckState =
+        state.check === CheckState.Unchecked ||
+        state.check === CheckState.Intermediate
+          ? CheckState.Checked
+          : CheckState.Unchecked;
+      state.check = newCheckState;
       if (selectionMode === SelectionMode.Subtree) {
-        state.children.forEach((ch) => (ch.selection = newSelection));
+        state.children.forEach((ch) => (ch.check = newCheckState));
       }
-      emitSelect();
+      emitCheckChange();
     }
 
-    function onSelectChild({ id, selection }) {
+    function onChildCkeckChange({ id, check }) {
       const child = state.children.find((ch) => id === idFn(ch.node));
       if (!child) {
         throw Error('Child not found, invalid state!');
       }
-      child.selection = selection;
-      updateSelection();
-      emitSelect();
+      child.check = check;
+      updateCheckState();
+      emitCheckChange();
     }
 
-    function updateSelection() {
-      if (
-        selectionMode === SelectionMode.Subtree &&
-        state.children.length > 0
-      ) {
-        const everyChildSelected = state.children.every(
-          (ch) => ch.selection === Selection.Selected
+    function updateCheckState() {
+      if (selectionMode === SelectionMode.Subtree) {
+        const everyChildChecked = state.children.every(
+          (ch) => ch.check === CheckState.Checked
         );
-        const everyChildUnselected = state.children.every(
-          (ch) => ch.selection === Selection.Unselected
+        const everyChildUnchecked = state.children.every(
+          (ch) => ch.check === CheckState.Unchecked
         );
-        const text = textFn(props.node);
-        if (everyChildSelected) {
-          console.log('every selected', text);
-          state.selection = Selection.Selected;
-        } else if (everyChildUnselected) {
-          console.log('every unselected', text);
-          state.selection = Selection.Unselected;
+        if (everyChildChecked) {
+          state.check = CheckState.Checked;
+        } else if (everyChildUnchecked) {
+          state.check = CheckState.Unchecked;
         } else {
-          console.log('some some', text);
-          state.selection = Selection.Intermediate;
+          state.check = CheckState.Intermediate;
         }
       }
     }
 
-    function emitSelect() {
-      emit('select', {
+    function emitCheckChange() {
+      emit('check-change', {
         id: idFn(props.node),
         check: state.check,
       });
-    }
-
-    function fixChildSelection(selection: Selection) {
-      return selection === Selection.Selected
-        ? Selection.Selected
-        : Selection.Unselected;
     }
 
     return {
       ...toRefs(state),
       idFn,
       textFn,
-      selectionIcon,
+      checkIcon,
       toggleExpandState,
-      toggleSelectState,
-      onSelectChild,
-      fixChildSelection,
+      toggleCheckState,
+      onChildCkeckChange,
     };
   },
 });
@@ -180,7 +163,7 @@ export default defineComponent({
       'tree-node_expanded': expanded,
       'tree-node_collapsed': !expanded,
     }"
-    @click.stop="toggleSelectState"
+    @click.stop="toggleCheckState"
   >
     <div class="tree-node__element">
       <svg
@@ -189,7 +172,7 @@ export default defineComponent({
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <use :xlink:href="selectionIcon" />
+        <use :xlink:href="checkIcon" />
         <defs>
           <g id="not-selected">
             <rect
@@ -259,13 +242,14 @@ export default defineComponent({
       v-if="children.length > 0"
       v-show="expanded"
       class="tree-node__children"
+      @click.stop
     >
       <tree-node
         v-for="child of children"
         :key="idFn(child.node)"
         :node="child.node"
-        :selection="fixChildSelection(child.selection)"
-        @select="onSelectChild"
+        :check="child.check"
+        @check-change="onChildCkeckChange"
       ></tree-node>
     </ul>
   </li>
